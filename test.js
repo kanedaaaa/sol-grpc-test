@@ -1,5 +1,6 @@
 import grpc from "@grpc/grpc-js";
 import protoLoader from "@grpc/proto-loader";
+import { performance } from "perf_hooks";
 import config from "./config.js";
 
 const geyserProtoPath = "./protos/geyser.proto";
@@ -12,7 +13,11 @@ const geyserDefinition = protoLoader.loadSync(geyserProtoPath, {
   defaults: true,
   oneofs: true,
 });
-const storageDefinition = protoLoader.loadSync(solanaStorageProtoPath, {
+
+// geyser definitions are enough to make sense of the actual latency
+// but imma leave the definition for later
+// just be aware this isn't measured
+const _storageDefinition = protoLoader.loadSync(solanaStorageProtoPath, {
   keepCase: true,
   longs: String,
   enums: String,
@@ -30,12 +35,42 @@ const geyserClient = new geyserProto.Geyser(
 );
 
 async function testGetLatestBlockhash() {
+  const start = performance.now();
   return new Promise((resolve, reject) => {
     geyserClient.GetLatestBlockhash({}, (error, response) => {
+      const end = performance.now();
       if (error) {
-        reject(error);
+        reject({ error, time: end - start });
       } else {
-        resolve(response);
+        resolve({ response, time: end - start });
+      }
+    });
+  });
+}
+
+async function testGetBlockHeight() {
+  const start = performance.now();
+  return new Promise((resolve, reject) => {
+    geyserClient.GetBlockHeight({}, (error, response) => {
+      const end = performance.now();
+      if (error) {
+        reject({ error, time: end - start });
+      } else {
+        resolve({ response, time: end - start });
+      }
+    });
+  });
+}
+
+async function testGetSlot() {
+  const start = performance.now();
+  return new Promise((resolve, reject) => {
+    geyserClient.GetSlot({}, (error, response) => {
+      const end = performance.now();
+      if (error) {
+        reject({ error, time: end - start });
+      } else {
+        resolve({ response, time: end - start });
       }
     });
   });
@@ -43,6 +78,7 @@ async function testGetLatestBlockhash() {
 
 async function testSubscribe() {
   return new Promise((resolve, reject) => {
+    const start = performance.now();
     const call = geyserClient.Subscribe();
 
     call.write({
@@ -54,7 +90,9 @@ async function testSubscribe() {
     });
 
     call.on("data", (data) => {
-      console.log("Subscription update:", data);
+      const end = performance.now();
+      console.log("Subscription update received:", data);
+      console.log(`Response time: ${(end - start).toFixed(2)} ms`);
     });
 
     call.on("error", (error) => {
@@ -76,8 +114,44 @@ async function testSubscribe() {
   try {
     console.log(`Testing gRPC methods on ${GRPC_ENDPOINT}`);
 
+    console.log("Testing GetLatestBlockhash...");
     const latestBlockhash = await testGetLatestBlockhash();
-    console.log("Latest Blockhash:", latestBlockhash);
+    if (latestBlockhash.error) {
+      console.error(
+        "Error fetching latest blockhash:",
+        latestBlockhash.error.message
+      );
+    } else {
+      console.log(
+        "Latest Blockhash Response:",
+        latestBlockhash.response,
+        `Response time: ${latestBlockhash.time.toFixed(2)} ms`
+      );
+    }
+
+    console.log("Testing GetBlockHeight...");
+    const blockHeight = await testGetBlockHeight();
+    if (blockHeight.error) {
+      console.error("Error fetching block height:", blockHeight.error.message);
+    } else {
+      console.log(
+        "Block Height Response:",
+        blockHeight.response,
+        `Response time: ${blockHeight.time.toFixed(2)} ms`
+      );
+    }
+
+    console.log("Testing GetSlot...");
+    const slot = await testGetSlot();
+    if (slot.error) {
+      console.error("Error fetching slot:", slot.error.message);
+    } else {
+      console.log(
+        "Slot Response:",
+        slot.response,
+        `Response time: ${slot.time.toFixed(2)} ms`
+      );
+    }
 
     console.log("Starting Subscription...");
     await testSubscribe();
